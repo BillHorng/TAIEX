@@ -1,6 +1,6 @@
 # Taiwan Stock Market Dashboard
 
-一個以 TWSE 官方公開資料為來源的台灣市場追蹤系統。Python 管線會先判斷交易日，再收集 TAIEX、0050、0056，產生 CSV 與供 GitHub Pages 使用的靜態 JSON；Google Drive / Sheets 發布是可選功能。
+一個以 TWSE 官方 MIS 即時資訊與 OpenAPI 為來源的台灣市場追蹤系統。Python 管線會更新並判斷交易日，再收集 TAIEX、0050、0056，產生 CSV、最新 JSON 與歷史 JSON；Google Drive / Sheets 發布是可選功能。
 
 ## 快速開始
 
@@ -34,5 +34,5 @@ pytest --cov=backend
 cd frontend && npm run check && npm run build
 ```
 
-資料僅供資訊展示，不構成投資建議。盤中排程使用 TWSE 公開端點能取得的最新資料，官方端點延遲或尚未結算時，狀態會標記為 `UNAVAILABLE`，不會以舊資料偽裝即時行情。
+資料僅供資訊展示，不構成投資建議。狀態依官方資料時間計算為 `OK`、`DELAYED`、`STALE` 或 `UNAVAILABLE`，不會以舊資料偽裝即時行情。網站支援歷史日期篩選與當日 CSV 下載。
 

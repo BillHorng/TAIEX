@@ -5,4 +5,5 @@ times:
   - "13:00"
   - "15:00"
 freshness_minutes: 30
+stale_minutes: 120
 

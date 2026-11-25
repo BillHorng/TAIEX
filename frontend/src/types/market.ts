@@ -34,3 +34,8 @@ export type RunSummary = {
   warnings: string[]
   sources: string[]
 }
+
+export type HistoryData = {
+  updated_at: string | null
+  records: MarketRecord[]
+}

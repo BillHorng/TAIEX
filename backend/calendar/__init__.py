@@ -1,4 +1,4 @@
-from .engine import TradingCalendarEngine
+from .engine import CalendarData, TradingCalendarEngine
 
-__all__ = ["TradingCalendarEngine"]
+__all__ = ["CalendarData", "TradingCalendarEngine"]
 

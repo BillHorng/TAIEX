@@ -18,7 +18,7 @@
 
 | 項目 | 狀態 | 說明 |
 |---|---|---|
-| Python 收集管線 | 完成 | 使用 TWSE 官方 OpenAPI |
+| Python 收集管線 | 完成 | 優先使用 TWSE 官方 MIS，即時服務失敗時改用 OpenAPI |
 | 交易日判定 | 完成 | 週末及年度休市日快取 |
 | CSV／JSON 輸出 | 完成 | CSV 為 UTF-8 BOM，JSON 為 UTF-8 |
 | React 儀表板 | 完成 | 支援桌面及行動裝置 |
@@ -26,8 +26,8 @@
 | GitHub Pages | 已上線 | `https://billhorng.github.io/TAIEX/` |
 | GitHub 排程 | 完成 | 台北時間 09:00、11:00、13:00、15:00 |
 | Google Drive 目錄 | 完成 | 已建立並上傳第一筆 CSV／JSON |
-| Google Drive 自動發布 | 程式完成、設定待確認 | 需設定 GitHub WIF 與 repository variables |
-| Google Sheets 自動寫入 | 程式完成、尚未啟用 | 需建立試算表、工作表及設定 Sheet ID |
+| Google Drive 自動發布 | 程式完成、設定待確認 | 已分流 CSV／JSON 並支援同名更新；需設定 GitHub WIF 與 variables |
+| Google Sheets 自動寫入 | 試算表與程式完成 | 已建立正式 Sheet 並寫入首批資料；排程自動寫入仍需 WIF |
 
 ## 3. 系統架構
 
@@ -38,7 +38,7 @@ GitHub Actions 排程／手動執行
       TradingCalendarEngine
               |
               v
-        TWSE OpenAPI Adapter
+      TWSE MIS + OpenAPI Fallback
               |
               v
      Pydantic 驗證與狀態判定
@@ -61,7 +61,7 @@ GitHub Actions 排程／手動執行
 | 路徑 | 用途 |
 |---|---|
 | `backend/main.py` | 管線入口、交易日閘門、輸出與發布協調 |
-| `backend/collectors/twse.py` | TWSE 官方資料轉接器、重試與欄位正規化 |
+| `backend/collectors/twse.py` | TWSE MIS 即時轉接器、日行情備援、重試與新鮮度判定 |
 | `backend/calendar/engine.py` | 交易日、週末、休市日判定 |
 | `backend/models.py` | 資料模型、狀態與漲跌計算 |
 | `backend/integrations/google.py` | Drive 上傳與 Sheets 追加 |
@@ -134,7 +134,7 @@ npm run check
 npm run build
 ```
 
-目前基準：6 項 Python 測試通過，後端覆蓋率 82%，TypeScript 與 Vite 正式建置通過。
+目前基準：15 項 Python 測試通過，後端覆蓋率 77%，TypeScript 與 Vite 正式建置通過。
 
 ## 8. GitHub Actions 維運
 
@@ -199,12 +199,13 @@ Drive 專案根目錄：
 ### GitHub Repository／Environment Variables
 
 - `GOOGLE_PUBLISH_ENABLED=true`
-- `GOOGLE_DRIVE_FOLDER_ID`
-- `GOOGLE_SHEETS_ID`（選用）
+- `GOOGLE_DRIVE_CSV_FOLDER_ID`
+- `GOOGLE_DRIVE_JSON_FOLDER_ID`
+- `GOOGLE_SHEETS_ID`
 
 必須將目標 Drive 資料夾及 Sheet 分享給該 service account。請勿建立或提交長效 service-account JSON 金鑰。
 
-Sheets 寫入範圍目前設定為 `MarketData!A1`；啟用前必須先建立 `MarketData` 工作表。程式採追加模式，不會覆寫既有資料。
+正式試算表：<https://docs.google.com/spreadsheets/d/1iWqvKCdijb5yoJjSZBilImJXls5l9PKLxPKl56U6elo/edit>。包含 `MarketData`、`執行紀錄`、`資料品質` 三個分頁。行情以 `record_id` 更新或追加，Drive 以檔名更新或建立，避免重跑產生重複資料。
 
 ## 10. 資料狀態與執行結果
 
@@ -234,7 +235,7 @@ Google 發布失敗不得刪除或覆蓋已成功產生的本機資料。
 
 ## 11. 年度例行維護
 
-每年 TWSE 公布下一年度行事曆後：
+工作流程會呼叫 `python -m backend.calendar.refresh` 自動同步 TWSE 發布的最新年度行事曆。每年仍應人工抽查：
 
 1. 從 TWSE 官方 `holidaySchedule/holidaySchedule` 取得休市日。
 2. 新增 `data/calendar/twse-YYYY.json`。
@@ -296,8 +297,7 @@ Google 發布失敗不得刪除或覆蓋已成功產生的本機資料。
 
 ## 15. 已知限制
 
-- TWSE closing-data OpenAPI 不保證盤中即時；畫面必須以實際時間與狀態呈現。
-- TAIEX 日資料端點未必提供完整 OHLC，因此部分圖表欄位可能顯示空值。
-- Google Sheets 尚未建立為本專案的正式資料庫；程式支援追加，但啟用前需要完成 Sheet 與 WIF 設定。
+- TWSE MIS 為官方即時資訊網站，但仍可能延遲或暫時不可用；系統會降級至日行情並顯示狀態。
+- GitHub 排程的 Google 自動發布仍需要完成 WIF 與 repository variables。
 - 前端使用 Recharts，主 JavaScript bundle 約 637 KB（gzip 約 187 KB）；目前可正常使用，未來可用動態載入進一步最佳化。
 

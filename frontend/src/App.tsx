@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { loadMarket } from './services/market'
-import type { MarketRecord, RunSummary } from './types/market'
+import { loadHistory, loadMarket } from './services/market'
+import type { HistoryData, MarketRecord, RunSummary } from './types/market'
 
 const money = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 2 })
 const compact = new Intl.NumberFormat('zh-TW', { notation: 'compact', maximumFractionDigits: 1 })
@@ -12,6 +12,8 @@ function direction(row: MarketRecord) {
 
 function MarketCard({ row, selected, onClick }: { row: MarketRecord; selected: boolean; onClick: () => void }) {
   const tone = direction(row)
+  const rangePosition = row.low != null && row.high != null && row.last_price != null
+    ? `${Math.max(3, Math.min(100, (row.last_price - row.low) / (row.high - row.low || 1) * 100))}%` : '0%'
   return <button className={`market-card ${selected ? 'selected' : ''}`} onClick={onClick}>
     <div className="card-top"><span className="symbol">{row.symbol}</span><span className={`status ${row.data_status.toLowerCase()}`}>{row.data_status}</span></div>
     <div className="name">{row.symbol_name}</div>
@@ -19,20 +21,47 @@ function MarketCard({ row, selected, onClick }: { row: MarketRecord; selected: b
       <strong>{row.last_price == null ? '—' : money.format(row.last_price)}</strong>
       <span className={tone}>{row.change_value == null ? '—' : `${row.change_value > 0 ? '+' : ''}${money.format(row.change_value)} (${row.change_percent?.toFixed(2)}%)`}</span>
     </div>
-    <div className="range"><span>低 {row.low ?? '—'}</span><i><b style={{ width: row.low && row.high && row.last_price ? `${Math.max(3, Math.min(100, (row.last_price - row.low) / (row.high - row.low || 1) * 100))}%` : '0%' }} /></i><span>高 {row.high ?? '—'}</span></div>
+    <div className="range"><span>低 {row.low ?? '—'}</span><i><b style={{ width: rangePosition }} /></i><span>高 {row.high ?? '—'}</span></div>
   </button>
+}
+
+function downloadCsv(rows: MarketRecord[]) {
+  if (!rows.length) return
+  const fields = Object.keys(rows[0]) as (keyof MarketRecord)[]
+  const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
+  const csv = `\uFEFF${fields.join(',')}\n${rows.map((row) => fields.map((field) => escape(row[field])).join(',')).join('\n')}`
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `TAIEX-${rows[0].trading_date}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 export function App() {
   const [data, setData] = useState<RunSummary | null>(null)
+  const [history, setHistory] = useState<HistoryData>({ updated_at: null, records: [] })
   const [error, setError] = useState('')
   const [selected, setSelected] = useState('TAIEX')
-  useEffect(() => { loadMarket().then(setData).catch((e: Error) => setError(e.message)) }, [])
-  const current = data?.records.find((r) => r.symbol === selected) ?? data?.records[0]
-  const chart = useMemo(() => current ? [
+  const [selectedDate, setSelectedDate] = useState('')
+
+  useEffect(() => {
+    Promise.all([loadMarket(), loadHistory()])
+      .then(([latest, historyData]) => { setData(latest); setHistory(historyData); setSelectedDate(latest.trading_date) })
+      .catch((errorValue: Error) => setError(errorValue.message))
+  }, [])
+
+  const dates = useMemo(() => [...new Set(history.records.map((row) => row.trading_date))].sort().reverse(), [history])
+  const dayRows = useMemo(() => history.records.filter((row) => row.trading_date === selectedDate), [history, selectedDate])
+  const current = data?.records.find((row) => row.symbol === selected) ?? data?.records[0]
+  const trend = useMemo(() => dayRows.filter((row) => row.symbol === selected && row.last_price != null)
+    .sort((a, b) => a.scheduled_time.localeCompare(b.scheduled_time))
+    .map((row) => ({ label: row.scheduled_time, value: row.last_price, status: row.data_status })), [dayRows, selected])
+  const fallbackRange = useMemo(() => current ? [
     { label: '開盤', value: current.open }, { label: '低點', value: current.low },
     { label: '高點', value: current.high }, { label: '最新', value: current.last_price },
   ].filter((point) => point.value != null) : [], [current])
+  const chart = trend.length > 1 ? trend : fallbackRange
   const updated = data ? new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Taipei' }).format(new Date(data.generated_at)) : ''
 
   return <main>
@@ -51,7 +80,15 @@ export function App() {
     <section className="cards">{data?.records.map((row) => <MarketCard key={row.symbol} row={row} selected={current?.symbol === row.symbol} onClick={() => setSelected(row.symbol)} />)}</section>
 
     <section className="panel chart-panel">
-      <div className="panel-title"><div><p>SESSION RANGE</p><h3>{current?.symbol_name ?? '市場走勢'}</h3></div><span>{current?.data_source ?? 'TWSE OpenAPI'}</span></div>
+      <div className="panel-title chart-heading">
+        <div><p>{trend.length > 1 ? 'INTRADAY HISTORY' : 'SESSION RANGE'}</p><h3>{current?.symbol_name ?? '市場走勢'}</h3></div>
+        <div className="chart-actions">
+          <select aria-label="選擇交易日期" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)}>
+            {(dates.length ? dates : data ? [data.trading_date] : []).map((day) => <option key={day}>{day}</option>)}
+          </select>
+          <button disabled={!dayRows.length} onClick={() => downloadCsv(dayRows)}>下載 CSV</button>
+        </div>
+      </div>
       <div className="chart-wrap">
         {chart.length ? <ResponsiveContainer width="100%" height="100%"><AreaChart data={chart} margin={{ top: 12, right: 10, left: 4, bottom: 0 }}>
           <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f3c969" stopOpacity={.42}/><stop offset="100%" stopColor="#f3c969" stopOpacity={0}/></linearGradient></defs>

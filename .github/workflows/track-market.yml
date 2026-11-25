@@ -2,7 +2,10 @@ name: Track market
 on:
   schedule:
     # GitHub cron is UTC: 01/03/05/07 = 09/11/13/15 Asia/Taipei.
-    - cron: "0 1,3,5,7 * * 1-5"
+    - cron: "0 1 * * 1-5"
+    - cron: "0 3 * * 1-5"
+    - cron: "0 5 * * 1-5"
+    - cron: "0 7 * * 1-5"
   workflow_dispatch:
     inputs:
       force:
@@ -34,10 +37,24 @@ jobs:
       - name: Resolve Taiwan schedule time
         id: clock
         shell: bash
-        run: echo "slot=$(TZ=Asia/Taipei date +%H:%M)" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          case "$EVENT_SCHEDULE" in
+            "0 1 * * 1-5") slot="09:00" ;;
+            "0 3 * * 1-5") slot="11:00" ;;
+            "0 5 * * 1-5") slot="13:00" ;;
+            "0 7 * * 1-5") slot="15:00" ;;
+            *) slot=$(TZ=Asia/Taipei date +%H:%M) ;;
+          esac
+          echo "slot=$slot" >> "$GITHUB_OUTPUT"
+      - name: Refresh TWSE calendar cache
+        shell: bash
+        run: python -m backend.calendar.refresh --output-dir data/calendar || echo "::warning::TWSE calendar refresh unavailable; using committed cache"
       - name: Collect and publish
         env:
-          GOOGLE_DRIVE_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_DRIVE_CSV_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_CSV_FOLDER_ID }}
+          GOOGLE_DRIVE_JSON_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_JSON_FOLDER_ID }}
           GOOGLE_SHEETS_ID: ${{ vars.GOOGLE_SHEETS_ID }}
         run: >-
           python -m backend.main --scheduled-time "${{ steps.clock.outputs.slot }}"
@@ -48,7 +65,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add frontend/public/data/latest.json
+          git add frontend/public/data/latest.json frontend/public/data/history.json data/calendar/
           git diff --cached --quiet || git commit -m "Update market snapshot"
           git push
       - uses: actions/upload-artifact@v4

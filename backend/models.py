@@ -62,7 +62,7 @@ class RunSummary(BaseModel):
     calendar_status: CalendarStatus
     calendar_note: str
     pipeline_status: Literal["SUCCESS", "PARTIAL_SUCCESS", "SKIPPED", "FAILED"]
-    records: list[MarketRecord] = []
-    warnings: list[str] = []
-    sources: list[str] = []
+    records: list[MarketRecord] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
 
