@@ -1,0 +1,17 @@
+.env
+.venv/
+.tools/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+data/output/
+credentials*.json
+service-account*.json
+

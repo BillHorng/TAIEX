@@ -1,0 +1,8 @@
+timezone: Asia/Taipei
+times:
+  - "09:00"
+  - "11:00"
+  - "13:00"
+  - "15:00"
+freshness_minutes: 30
+

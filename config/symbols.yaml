@@ -1,0 +1,14 @@
+symbols:
+  - symbol: TAIEX
+    name: 加權股價指數
+    market: TWSE
+    kind: index
+  - symbol: "0050"
+    name: 元大台灣50
+    market: TWSE
+    kind: security
+  - symbol: "0056"
+    name: 元大高股息
+    market: TWSE
+    kind: security
+

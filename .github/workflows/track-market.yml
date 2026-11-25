@@ -1,0 +1,61 @@
+name: Track market
+on:
+  schedule:
+    # GitHub cron is UTC: 01/03/05/07 = 09/11/13/15 Asia/Taipei.
+    - cron: "0 1,3,5,7 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Ignore the market calendar gate
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  id-token: write
+concurrency:
+  group: market-data
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements.txt }
+      - run: pip install -r requirements.txt
+      - id: auth
+        if: ${{ vars.GOOGLE_PUBLISH_ENABLED == 'true' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+      - name: Resolve Taiwan schedule time
+        id: clock
+        shell: bash
+        run: echo "slot=$(TZ=Asia/Taipei date +%H:%M)" >> "$GITHUB_OUTPUT"
+      - name: Collect and publish
+        env:
+          GOOGLE_DRIVE_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_SHEETS_ID: ${{ vars.GOOGLE_SHEETS_ID }}
+        run: >-
+          python -m backend.main --scheduled-time "${{ steps.clock.outputs.slot }}"
+          ${{ (github.event_name == 'workflow_dispatch' && inputs.force) && '--force' || '' }}
+          ${{ vars.GOOGLE_PUBLISH_ENABLED == 'true' && '--publish-google' || '' }}
+      - name: Commit public snapshot
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add frontend/public/data/latest.json
+          git diff --cached --quiet || git commit -m "Update market snapshot"
+          git push
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: market-run-${{ github.run_id }}
+          path: data/output/
+          if-no-files-found: ignore
+          retention-days: 30
+

@@ -1,0 +1,9 @@
+httpx==0.28.1
+pydantic==2.10.6
+PyYAML==6.0.2
+google-api-python-client==2.160.0
+google-auth==2.38.0
+pytest==8.3.4
+pytest-cov==6.0.0
+tzdata==2025.2
+
