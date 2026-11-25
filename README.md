@@ -25,6 +25,8 @@ npm run dev
 - Google 發布：複製 `.env.example`，依 `docs/GOOGLE_API_SETUP.md` 設定 GitHub WIF 與 repository variables。
 - GitHub Pages：依 `docs/GITHUB_SETUP.md` 將 Pages Source 設為 GitHub Actions。
 
+完整維運、部署與接手流程請參閱 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
+
 ## 驗證
 
 ```bash
