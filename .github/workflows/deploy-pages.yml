@@ -1,4 +1,5 @@
 name: Deploy Pages
+# Repository Settings > Pages must use GitHub Actions as the deployment source.
 on:
   push:
     branches: [main]
