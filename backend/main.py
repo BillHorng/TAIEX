@@ -12,7 +12,7 @@ from backend.calendar import CalendarData, TradingCalendarEngine
 from backend.collectors import TwseCollector
 from backend.config import ROOT, load_schedule, load_symbols
 from backend.integrations import GooglePublisher
-from backend.models import CalendarStatus, MarketRecord, RunSummary
+from backend.models import CalendarStatus, DataStatus, MarketRecord, RunSummary
 from backend.storage import LocalStorage
 from backend.validators import validate_records
 
@@ -48,7 +48,15 @@ def run(scheduled_time: str, *, force: bool = False, publish: bool = False, now:
                 load_symbols(), scheduled_time, now
             )
             warnings = validate_records(records)
-            status = "SUCCESS"
+            wrong_dates = sorted({row.trading_date.isoformat() for row in records if row.trading_date != now.date()})
+            if wrong_dates:
+                warnings.append(f"TWSE returned a different trading date: {', '.join(wrong_dates)}")
+                status = "FAILED"
+            elif records and all(row.data_status == DataStatus.UNAVAILABLE for row in records):
+                warnings.append("All tracked symbols are unavailable")
+                status = "FAILED"
+            else:
+                status = "SUCCESS"
         except Exception as exc:  # boundary: retain an auditable failed run
             warnings.append(str(exc))
             status = "FAILED"

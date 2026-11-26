@@ -8,10 +8,12 @@ from backend.models import RunSummary
 
 
 class LocalStorage:
-    def __init__(self, output_dir: Path, public_json: Path, history_json: Path | None = None) -> None:
+    def __init__(self, output_dir: Path, public_json: Path, history_json: Path | None = None,
+                 status_json: Path | None = None) -> None:
         self.output_dir = output_dir
         self.public_json = public_json
         self.history_json = history_json or public_json.with_name("history.json")
+        self.status_json = status_json or public_json.with_name("run-status.json")
 
     def write(self, summary: RunSummary) -> tuple[Path, Path]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -22,8 +24,10 @@ class LocalStorage:
         rendered = json.dumps(payload, ensure_ascii=False, indent=2)
         json_path.write_text(rendered + "\n", encoding="utf-8")
         self.public_json.parent.mkdir(parents=True, exist_ok=True)
-        self.public_json.write_text(rendered + "\n", encoding="utf-8")
-        self._update_history(summary)
+        self.status_json.write_text(rendered + "\n", encoding="utf-8")
+        if summary.records and summary.pipeline_status in ("SUCCESS", "PARTIAL_SUCCESS"):
+            self.public_json.write_text(rendered + "\n", encoding="utf-8")
+            self._update_history(summary)
         fields = list(summary.records[0].model_dump(mode="json")) if summary.records else []
         with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields)

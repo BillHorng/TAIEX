@@ -1,11 +1,13 @@
 name: Track market
 on:
   schedule:
-    # GitHub cron is UTC: 01/03/05/07 = 09/11/13/15 Asia/Taipei.
-    - cron: "0 1 * * 1-5"
-    - cron: "0 3 * * 1-5"
-    - cron: "0 5 * * 1-5"
-    - cron: "0 7 * * 1-5"
+    # Run seven minutes after each nominal slot to avoid GitHub's top-of-hour congestion.
+    - cron: "7 1 * * 1-5"
+    - cron: "7 3 * * 1-5"
+    - cron: "7 5 * * 1-5"
+    - cron: "7 7 * * 1-5"
+    # Recovery check at 16:17 Asia/Taipei when the primary 15:07 event was dropped.
+    - cron: "17 8 * * 1-5"
   workflow_dispatch:
     inputs:
       force:
@@ -41,17 +43,38 @@ jobs:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
           case "$EVENT_SCHEDULE" in
-            "0 1 * * 1-5") slot="09:00" ;;
-            "0 3 * * 1-5") slot="11:00" ;;
-            "0 5 * * 1-5") slot="13:00" ;;
-            "0 7 * * 1-5") slot="15:00" ;;
+            "7 1 * * 1-5") slot="09:00" ;;
+            "7 3 * * 1-5") slot="11:00" ;;
+            "7 5 * * 1-5") slot="13:00" ;;
+            "7 7 * * 1-5"|"17 8 * * 1-5") slot="15:00" ;;
             *) slot=$(TZ=Asia/Taipei date +%H:%M) ;;
           esac
           echo "slot=$slot" >> "$GITHUB_OUTPUT"
+      - name: Check whether recovery collection is needed
+        id: gate
+        shell: bash
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          should_collect=true
+          today=$(TZ=Asia/Taipei date +%F)
+          if [[ "$EVENT_SCHEDULE" == "17 8 * * 1-5" ]] && \
+             { jq -e --arg today "$today" \
+                 '.trading_date == $today and .scheduled_time == "15:00" and (.pipeline_status == "SUCCESS" or .pipeline_status == "PARTIAL_SUCCESS")' \
+                 frontend/public/data/latest.json >/dev/null || \
+               jq -e --arg today "$today" \
+                 '.trading_date == $today and .scheduled_time == "15:00" and .pipeline_status == "SKIPPED"' \
+                 frontend/public/data/run-status.json >/dev/null; }; then
+            should_collect=false
+            echo "The successful 15:00 batch already exists; recovery collection is not needed."
+          fi
+          echo "should_collect=$should_collect" >> "$GITHUB_OUTPUT"
       - name: Refresh TWSE calendar cache
+        if: steps.gate.outputs.should_collect == 'true'
         shell: bash
         run: python -m backend.calendar.refresh --output-dir data/calendar || echo "::warning::TWSE calendar refresh unavailable; using committed cache"
       - name: Collect and publish
+        if: steps.gate.outputs.should_collect == 'true'
         env:
           GOOGLE_DRIVE_CSV_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_CSV_FOLDER_ID }}
           GOOGLE_DRIVE_JSON_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_JSON_FOLDER_ID }}
@@ -61,13 +84,19 @@ jobs:
           ${{ (github.event_name == 'workflow_dispatch' && inputs.force) && '--force' || '' }}
           ${{ vars.GOOGLE_PUBLISH_ENABLED == 'true' && '--publish-google' || '' }}
       - name: Commit public snapshot
+        if: steps.gate.outputs.should_collect == 'true'
         shell: bash
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add frontend/public/data/latest.json frontend/public/data/history.json data/calendar/
-          git diff --cached --quiet || git commit -m "Update market snapshot"
-          git push
+          git add frontend/public/data/latest.json frontend/public/data/history.json frontend/public/data/run-status.json data/calendar/
+          if git diff --cached --quiet; then
+            echo "No snapshot changes to publish"
+            exit 0
+          fi
+          git commit -m "Update market snapshot"
+          git pull --rebase origin main
+          git push origin HEAD:main
       - uses: actions/upload-artifact@v4
         if: always()
         with:

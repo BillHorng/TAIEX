@@ -26,3 +26,16 @@ def test_history_upserts_same_record_id(tmp_path) -> None:
     history = json.loads((tmp_path / "public" / "history.json").read_text(encoding="utf-8"))
     assert len(history["records"]) == 1
     assert history["records"][0]["last_price"] == 92
+
+
+def test_failed_run_preserves_last_successful_snapshot(tmp_path) -> None:
+    store = LocalStorage(tmp_path / "output", tmp_path / "public" / "latest.json")
+    store.write(summary(91))
+    failed = summary(0)
+    failed.pipeline_status = "FAILED"
+    failed.records = []
+    store.write(failed)
+    latest = json.loads((tmp_path / "public" / "latest.json").read_text(encoding="utf-8"))
+    status = json.loads((tmp_path / "public" / "run-status.json").read_text(encoding="utf-8"))
+    assert latest["records"][0]["last_price"] == 91
+    assert status["pipeline_status"] == "FAILED"

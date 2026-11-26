@@ -69,7 +69,9 @@ GitHub Actions 排程／手動執行
 | `config/schedule.yaml` | 台北時區排程與新鮮度設定 |
 | `data/calendar/twse-YYYY.json` | 年度休市日快取 |
 | `frontend/src/App.tsx` | 儀表板主要介面 |
-| `frontend/public/data/latest.json` | Pages 顯示的最新行情快照 |
+| `frontend/public/data/latest.json` | Pages 顯示的最後成功行情快照 |
+| `frontend/public/data/history.json` | 依日期、批次與標的去重的歷史行情 |
+| `frontend/public/data/run-status.json` | 最近一次執行狀態；失敗或休市不會清空最後成功行情 |
 | `.github/workflows/ci.yml` | 測試與建置驗證 |
 | `.github/workflows/track-market.yml` | 定時收集、Google 發布與快照提交 |
 | `.github/workflows/deploy-pages.yml` | GitHub Pages 建置與部署 |
@@ -134,7 +136,7 @@ npm run check
 npm run build
 ```
 
-目前基準：15 項 Python 測試通過，後端覆蓋率 77%，TypeScript 與 Vite 正式建置通過。
+目前基準：20 項 Python 測試通過，後端覆蓋率 77%，TypeScript 與 Vite 正式建置通過。
 
 ## 8. GitHub Actions 維運
 
@@ -149,16 +151,17 @@ npm run build
 
 ### 行情排程
 
-`track-market.yml` 的 UTC cron 對應台北時間如下：
+`track-market.yml` 刻意避開 GitHub Actions 每小時整點的高負載區段。cron 觸發時間與資料批次標籤如下：
 
-| UTC | Asia/Taipei |
-|---|---|
-| 01:00 | 09:00 |
-| 03:00 | 11:00 |
-| 05:00 | 13:00 |
-| 07:00 | 15:00 |
+| UTC cron | 實際台北觸發時間 | 資料批次標籤 |
+|---|---|---|
+| 01:07 | 09:07 | 09:00 |
+| 03:07 | 11:07 | 11:00 |
+| 05:07 | 13:07 | 13:00 |
+| 07:07 | 15:07 | 15:00 |
+| 08:17 | 16:17 | 缺少時補跑 15:00 |
 
-GitHub 排程可能因平台負載延遲。前端會顯示資料產生時間，不能假定排程準點即等同即時行情。
+16:17 補償排程會先檢查今天是否已有成功的 15:00 快照，僅在缺少時收集，因此不會用較晚資料覆寫正常批次。GitHub 排程仍可能延遲；前端會顯示資料產生時間，不能假定批次標籤等同實際行情時間。
 
 手動補跑方式：GitHub → Actions → **Track market** → **Run workflow**。需要在休市日測試時才勾選 `force`。
 
@@ -232,6 +235,7 @@ Drive 專案根目錄：
 - `FAILED`：核心資料收集失敗。
 
 Google 發布失敗不得刪除或覆蓋已成功產生的本機資料。
+核心收集失敗或休市時只更新 `run-status.json`，不得以空 records 覆寫 `latest.json`。
 
 ## 11. 年度例行維護
 
@@ -258,8 +262,9 @@ Google 發布失敗不得刪除或覆蓋已成功產生的本機資料。
 
 1. 確認 Actions 未被停用。
 2. 排程 workflow 長期無 repository 活動時可能被 GitHub 停用。
-3. 使用 `workflow_dispatch` 手動補跑。
-4. 檢查交易日狀態是否為 `SKIPPED`。
+3. 確認 cron 仍使用非整點的 `:07`，並查看 16:17 補償檢查。
+4. 使用 `workflow_dispatch` 手動補跑。
+5. 檢查交易日狀態是否為 `SKIPPED`。
 
 ### Drive／Sheets 顯示 `PARTIAL_SUCCESS`
 

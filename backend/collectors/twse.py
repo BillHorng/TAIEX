@@ -37,7 +37,10 @@ def _pick(row: dict, *keys: str) -> Any:
 def _freshness(data_time: datetime | None, now: datetime, delayed_minutes: int, stale_minutes: int) -> DataStatus:
     if data_time is None:
         return DataStatus.UNAVAILABLE
-    age_minutes = max(0, (now - data_time).total_seconds() / 60)
+    age_minutes = (now - data_time).total_seconds() / 60
+    if age_minutes < -5:
+        return DataStatus.UNAVAILABLE
+    age_minutes = max(0, age_minutes)
     if age_minutes <= delayed_minutes:
         return DataStatus.OK
     if age_minutes <= stale_minutes:
@@ -115,17 +118,26 @@ class TwseCollector:
         if not row:
             return self._unavailable(item, scheduled_time, now, "TWSE MIS")
         market_time = self._mis_time(row)
-        last, previous = _number(row.get("z")), _number(row.get("y"))
+        trade = row.get("trade") if isinstance(row.get("trade"), dict) else {}
+        last = _number(row.get("z")) or _number(trade.get("z")) or _number(row.get("pz"))
+        previous = _number(row.get("y"))
+        try:
+            source_date = datetime.strptime(str(row.get("d")), "%Y%m%d").date()
+        except ValueError:
+            source_date = now.date()
         raw_volume = _number(row.get("v"))
+        status = _freshness(market_time, now, self.delayed_minutes, self.stale_minutes) if last is not None else DataStatus.UNAVAILABLE
+        if source_date != now.date():
+            status = DataStatus.STALE
         return MarketRecord(
-            record_id=f"{now.date()}-{scheduled_time}-{item.symbol}", symbol=item.symbol,
-            symbol_name=item.name, market=item.market, trading_date=now.date(), scheduled_time=scheduled_time,
+            record_id=f"{source_date}-{scheduled_time}-{item.symbol}", symbol=item.symbol,
+            symbol_name=item.name, market=item.market, trading_date=source_date, scheduled_time=scheduled_time,
             market_data_time=market_time, retrieved_at=now,
             open=_number(row.get("o")), high=_number(row.get("h")), low=_number(row.get("l")),
             last_price=last, previous_close=previous,
             volume=int(raw_volume * 1000) if raw_volume is not None and item.kind != "index" else None,
             turnover=None, data_source="TWSE MIS",
-            data_status=_freshness(market_time, now, self.delayed_minutes, self.stale_minutes) if last is not None else DataStatus.UNAVAILABLE,
+            data_status=status,
         )
 
     def _normalize_closing(self, item: Symbol, row: dict | None, scheduled_time: str, now: datetime) -> MarketRecord:
@@ -137,14 +149,14 @@ class TwseCollector:
         return MarketRecord(
             record_id=f"{now.date()}-{scheduled_time}-{item.symbol}", symbol=item.symbol,
             symbol_name=item.name, market=item.market, trading_date=now.date(), scheduled_time=scheduled_time,
-            market_data_time=now, retrieved_at=now,
+            market_data_time=None, retrieved_at=now,
             open=_number(_pick(row, "OpeningPrice", "開盤價", "OpeningIndex", "開盤指數")),
             high=_number(_pick(row, "HighestPrice", "最高價", "HighestIndex", "最高指數")),
             low=_number(_pick(row, "LowestPrice", "最低價", "LowestIndex", "最低指數")),
             last_price=last, previous_close=previous,
             volume=int(_number(_pick(row, "TradeVolume", "成交股數", "TradeVolume(Shares)")) or 0),
             turnover=_number(_pick(row, "TradeValue", "成交金額")), data_source="TWSE OpenAPI fallback",
-            data_status=DataStatus.DELAYED if last is not None else DataStatus.UNAVAILABLE,
+            data_status=DataStatus.STALE if last is not None else DataStatus.UNAVAILABLE,
         )
 
     @staticmethod
